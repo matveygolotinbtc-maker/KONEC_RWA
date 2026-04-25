@@ -47,7 +47,7 @@ declare global {
 }
 
 const RPC_ENDPOINT = "https://api.devnet.solana.com";
-const PROGRAM_ID = new PublicKey("G9acQdREqSrvNhp2hHUWYsMtfBFJJKkudAANYjM5d6DM");
+const PROGRAM_ID = new PublicKey("H25He6vZt9kv7z4AQYeosBifs6SMML8jynSSqFhHXVgZ");
 const DEMO_SALE_PDA = new PublicKey("6kMtPKcCRvDP62PPjrUgDKACGb14daZZ2pwnGWNx9oAK");
 const DEMO_ADMIN = "CsSCxuAh7UR5zTPYFKyttrGzQgP48kWqgLAsP2R2Fuvi";
 const DEMO_TX =
