@@ -48,10 +48,11 @@ declare global {
 
 const RPC_ENDPOINT = "https://api.devnet.solana.com";
 const PROGRAM_ID = new PublicKey("H25He6vZt9kv7z4AQYeosBifs6SMML8jynSSqFhHXVgZ");
-const DEMO_SALE_PDA = new PublicKey("6kMtPKcCRvDP62PPjrUgDKACGb14daZZ2pwnGWNx9oAK");
+const TOKEN_PROGRAM_ID = new PublicKey("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA");
+const DEFAULT_RWA_MINT = "5ziuRY49o4jUUAPPjbWZZPT68uYsk7GxX5zP2YigidSv";
+const DEMO_SALE_PDA = "";
 const DEMO_ADMIN = "CsSCxuAh7UR5zTPYFKyttrGzQgP48kWqgLAsP2R2Fuvi";
-const DEMO_TX =
-  "faGUcpG7D4eFQFyW5BPZhoTPd7bAW6rt1eeuBxhVZouZGx8X8m4bcuUissZ2R8Zqb7cwtyp4kUB3zFuK4qXFoHU";
+const DEMO_TX = "";
 
 const IDL = {
   address: PROGRAM_ID.toBase58(),
@@ -59,21 +60,25 @@ const IDL = {
     name: "rwa_sale_anchor_contract_v1",
     version: "0.1.0",
     spec: "0.1.0",
-    description: "Minimal RWA sale MVP",
+    description: "RWA sale MVP with payment options",
   },
   instructions: [
     {
       name: "initializeSale",
-      discriminator: [0, 0, 0, 0, 0, 0, 0, 1],
+      discriminator: [208, 103, 34, 154, 179, 6, 125, 208],
       accounts: [
         { name: "admin", writable: true, signer: true },
         { name: "sale", writable: true },
+        { name: "rwaMint", writable: true },
+        { name: "mintAuthority" },
+        { name: "treasuryAuthority" },
+        { name: "tokenProgram", address: TOKEN_PROGRAM_ID.toBase58() },
         { name: "systemProgram", address: SystemProgram.programId.toBase58() },
       ],
       args: [
         { name: "saleId", type: "u64" },
-        { name: "rwaMint", type: "pubkey" },
         { name: "totalSupply", type: "u64" },
+        { name: "softCap", type: "u64" },
         { name: "endTs", type: "i64" },
       ],
     },
@@ -81,7 +86,7 @@ const IDL = {
   accounts: [
     {
       name: "sale",
-      discriminator: [0, 0, 0, 0, 0, 0, 0, 2],
+      discriminator: [202, 64, 232, 171, 178, 172, 34, 183],
     },
   ],
   types: [
@@ -94,11 +99,14 @@ const IDL = {
           { name: "admin", type: "pubkey" },
           { name: "rwaMint", type: "pubkey" },
           { name: "totalSupply", type: "u64" },
+          { name: "softCap", type: "u64" },
           { name: "totalReserved", type: "u64" },
           { name: "endTs", type: "i64" },
           { name: "finalizedTs", type: "i64" },
-          { name: "finalized", type: "bool" },
+          { name: "status", type: "u8" },
           { name: "bump", type: "u8" },
+          { name: "mintAuthorityBump", type: "u8" },
+          { name: "treasuryAuthorityBump", type: "u8" },
         ],
       },
     },
@@ -110,11 +118,15 @@ type SaleView = {
   admin: string;
   rwaMint: string;
   totalSupply: string;
+  softCap: string;
   totalReserved: string;
   endTs: string;
   finalizedTs: string;
-  finalized: boolean;
+  status: number;
+  statusLabel: string;
   bump: number;
+  mintAuthorityBump: number;
+  treasuryAuthorityBump: number;
   pda: string;
 };
 
@@ -175,6 +187,21 @@ function formatTs(ts?: string) {
   return new Date(n * 1000).toLocaleString();
 }
 
+function saleStatusLabel(status: number) {
+  switch (status) {
+    case 0:
+      return "Active";
+    case 1:
+      return "Successful";
+    case 2:
+      return "Failed";
+    case 3:
+      return "Cancelled";
+    default:
+      return `Unknown (${status})`;
+  }
+}
+
 function parsePositiveInt(input: string, fallback: string) {
   const value = input.trim() || fallback;
   if (!/^\d+$/.test(value)) {
@@ -211,11 +238,14 @@ function SaleStateGrid({ saleState }: { saleState: SaleView | null }) {
     ["Admin", saleState.admin],
     ["RWA Mint", saleState.rwaMint],
     ["Total Supply", saleState.totalSupply],
+    ["Soft Cap", saleState.softCap],
     ["Total Reserved", saleState.totalReserved],
     ["End Date", `${saleState.endTs} · ${formatTs(saleState.endTs)}`],
-    ["Finalized", saleState.finalized ? "true" : "false"],
+    ["Status", `${saleState.status} · ${saleState.statusLabel}`],
     ["Finalized Timestamp", saleState.finalizedTs === "0" ? "Not finalized" : `${saleState.finalizedTs} · ${formatTs(saleState.finalizedTs)}`],
-    ["Bump", String(saleState.bump)],
+    ["Sale Bump", String(saleState.bump)],
+    ["Mint Authority Bump", String(saleState.mintAuthorityBump)],
+    ["Treasury Authority Bump", String(saleState.treasuryAuthorityBump)],
   ];
 
   return (
@@ -238,9 +268,10 @@ export default function App() {
   const [connecting, setConnecting] = useState(false);
   const [busy, setBusy] = useState<"create" | "fetch" | "demo" | null>(null);
   const [activeTab, setActiveTab] = useState<TabKey>("interact");
-  const [saleId, setSaleId] = useState("2");
-  const [rwaMint, setRwaMint] = useState("");
-  const [totalSupply, setTotalSupply] = useState("1000000");
+  const [saleId, setSaleId] = useState("1");
+  const [rwaMint, setRwaMint] = useState(DEFAULT_RWA_MINT);
+  const [totalSupply, setTotalSupply] = useState("1000");
+  const [softCap, setSoftCap] = useState("500");
   const [hoursAhead, setHoursAhead] = useState("24");
   const [saleState, setSaleState] = useState<SaleView | null>(null);
   const [derivedPda, setDerivedPda] = useState("");
@@ -255,7 +286,6 @@ export default function App() {
     if (provider?.publicKey) {
       const address = provider.publicKey.toBase58();
       setWalletAddress(address);
-      setRwaMint((prev) => prev || address);
     }
   }, []);
 
@@ -263,6 +293,22 @@ export default function App() {
     const saleIdBn = new BN(currentSaleId || "0");
     const [pda] = PublicKey.findProgramAddressSync(
       [Buffer.from("sale"), admin.toBuffer(), saleIdBn.toArrayLike(Buffer, "le", 8)],
+      PROGRAM_ID
+    );
+    return pda;
+  };
+
+  const deriveMintAuthorityPda = (salePda: PublicKey) => {
+    const [pda] = PublicKey.findProgramAddressSync(
+      [Buffer.from("mint_authority"), salePda.toBuffer()],
+      PROGRAM_ID
+    );
+    return pda;
+  };
+
+  const deriveTreasuryAuthorityPda = (salePda: PublicKey) => {
+    const [pda] = PublicKey.findProgramAddressSync(
+      [Buffer.from("treasury_authority"), salePda.toBuffer()],
       PROGRAM_ID
     );
     return pda;
@@ -299,18 +345,26 @@ export default function App() {
     return new Program(IDL, readonlyProvider as any);
   };
 
-  const normalizeSale = (raw: any, pda: string): SaleView => ({
-    saleId: raw.saleId?.toString?.() ?? String(raw.saleId),
-    admin: raw.admin?.toBase58?.() ?? String(raw.admin),
-    rwaMint: raw.rwaMint?.toBase58?.() ?? String(raw.rwaMint),
-    totalSupply: raw.totalSupply?.toString?.() ?? String(raw.totalSupply),
-    totalReserved: raw.totalReserved?.toString?.() ?? String(raw.totalReserved),
-    endTs: raw.endTs?.toString?.() ?? String(raw.endTs),
-    finalizedTs: raw.finalizedTs?.toString?.() ?? String(raw.finalizedTs),
-    finalized: Boolean(raw.finalized),
-    bump: Number(raw.bump),
-    pda,
-  });
+  const normalizeSale = (raw: any, pda: string): SaleView => {
+    const status = Number(raw.status ?? 0);
+
+    return {
+      saleId: raw.saleId?.toString?.() ?? String(raw.saleId),
+      admin: raw.admin?.toBase58?.() ?? String(raw.admin),
+      rwaMint: raw.rwaMint?.toBase58?.() ?? String(raw.rwaMint),
+      totalSupply: raw.totalSupply?.toString?.() ?? String(raw.totalSupply),
+      softCap: raw.softCap?.toString?.() ?? String(raw.softCap),
+      totalReserved: raw.totalReserved?.toString?.() ?? String(raw.totalReserved),
+      endTs: raw.endTs?.toString?.() ?? String(raw.endTs),
+      finalizedTs: raw.finalizedTs?.toString?.() ?? String(raw.finalizedTs),
+      status,
+      statusLabel: saleStatusLabel(status),
+      bump: Number(raw.bump),
+      mintAuthorityBump: Number(raw.mintAuthorityBump),
+      treasuryAuthorityBump: Number(raw.treasuryAuthorityBump),
+      pda,
+    };
+  };
 
   const connectWallet = async () => {
     try {
@@ -320,7 +374,6 @@ export default function App() {
       const provider = await getProvider();
       const address = provider.publicKey!.toBase58();
       setWalletAddress(address);
-      setRwaMint((prev) => prev || address);
       setStatus("Wallet connected.");
     } catch (e: any) {
       setError(e?.message || "Failed to connect wallet.");
@@ -345,10 +398,16 @@ export default function App() {
       setError("");
       setBusy("demo");
       setStatus("Loading the live demo sale from devnet...");
+
+      if (!DEMO_SALE_PDA) {
+        throw new Error("No demo sale is configured yet. Create a sale first, then copy its Derived sale PDA and Latest transaction into the site constants.");
+      }
+
+      const demoSalePda = new PublicKey(DEMO_SALE_PDA);
       const program = makeReadonlyProgram();
-      const raw = await program.account.sale.fetch(DEMO_SALE_PDA);
-      setSaleState(normalizeSale(raw, DEMO_SALE_PDA.toBase58()));
-      setDerivedPda(DEMO_SALE_PDA.toBase58());
+      const raw = await program.account.sale.fetch(demoSalePda);
+      setSaleState(normalizeSale(raw, demoSalePda.toBase58()));
+      setDerivedPda(demoSalePda.toBase58());
       setTxHash(DEMO_TX);
       setActiveTab("state");
       setStatus("Live demo sale loaded successfully.");
@@ -387,21 +446,39 @@ export default function App() {
       setError("");
       setBusy("create");
       setStatus("Sending initializeSale transaction...");
+
       const provider = await getProvider();
       const program = await makeWritableProgram();
       const admin = provider.publicKey!;
+
       const validatedSaleId = parsePositiveInt(saleId, "1");
-      const validatedSupply = parsePositiveInt(totalSupply, "1000000");
+      const validatedSupply = parsePositiveInt(totalSupply, "1000");
+      const validatedSoftCap = parsePositiveInt(softCap, "500");
       const validatedHours = parsePositiveInt(hoursAhead, "24");
+
+      if (BigInt(validatedSoftCap) > BigInt(validatedSupply)) {
+        throw new Error("Soft cap cannot be greater than total supply.");
+      }
+
+      if (!rwaMint.trim()) {
+        throw new Error("Enter the SPL token mint address, not your wallet address.");
+      }
+
       const salePda = deriveSalePda(admin, validatedSaleId);
-      const mintPk = new PublicKey((rwaMint || admin.toBase58()).trim());
+      const mintPk = new PublicKey(rwaMint.trim());
+      const mintAuthority = deriveMintAuthorityPda(salePda);
+      const treasuryAuthority = deriveTreasuryAuthorityPda(salePda);
       const endTs = new BN(Math.floor(Date.now() / 1000) + Math.max(1, Number(validatedHours)) * 3600);
 
       const signature = await program.methods
-        .initializeSale(new BN(validatedSaleId), mintPk, new BN(validatedSupply), endTs)
+        .initializeSale(new BN(validatedSaleId), new BN(validatedSupply), new BN(validatedSoftCap), endTs)
         .accounts({
           admin,
           sale: salePda,
+          rwaMint: mintPk,
+          mintAuthority,
+          treasuryAuthority,
+          tokenProgram: TOKEN_PROGRAM_ID,
           systemProgram: SystemProgram.programId,
         })
         .rpc();
@@ -421,7 +498,7 @@ export default function App() {
     }
   };
 
-  const liveProofUrl = `https://explorer.solana.com/tx/${txHash || DEMO_TX}?cluster=devnet`;
+  const liveProofUrl = txHash || DEMO_TX ? `https://explorer.solana.com/tx/${txHash || DEMO_TX}?cluster=devnet` : "https://explorer.solana.com/?cluster=devnet";
 
   return (
     <div className="site-shell">
@@ -498,11 +575,11 @@ export default function App() {
             </ul>
             <div className="mini-proof">
               <div className="mini-proof__label">Latest transaction</div>
-              <div className="mono">{short(txHash || DEMO_TX, 12, 12)}</div>
+              <div className="mono">{txHash || DEMO_TX ? short(txHash || DEMO_TX, 12, 12) : "Create sale first"}</div>
             </div>
             <div className="mini-proof">
               <div className="mini-proof__label">Demo Sale PDA</div>
-              <div className="mono">{short(DEMO_SALE_PDA.toBase58(), 12, 12)}</div>
+              <div className="mono">{DEMO_SALE_PDA ? short(DEMO_SALE_PDA, 12, 12) : "Create sale first"}</div>
             </div>
           </motion.aside>
         </section>
@@ -571,7 +648,7 @@ export default function App() {
               <div className="section-topline">Live contract demo</div>
               <h2 className="section-title">Interact with the deployed Solana MVP</h2>
               <p className="demo-copy">
-                Connect Phantom, initialize a sale account on devnet, or simply load the existing on-chain example that was already deployed.
+                Connect Phantom and initialize a sale account on devnet using the new deployed RWA sale contract.
               </p>
             </div>
             <div className="demo-pills">
@@ -607,12 +684,16 @@ export default function App() {
                     <input value={hoursAhead} onChange={(e) => setHoursAhead(e.target.value.replace(/[^0-9]/g, ""))} />
                   </div>
                   <div className="field field-full">
-                    <label>RWA mint / placeholder public key</label>
-                    <input value={rwaMint} onChange={(e) => setRwaMint(e.target.value)} placeholder="Enter a Solana public key" />
+                    <label>RWA mint / SPL token mint address</label>
+                    <input value={rwaMint} onChange={(e) => setRwaMint(e.target.value)} placeholder="Enter a devnet SPL token mint" />
                   </div>
                   <div className="field field-full">
                     <label>Total supply</label>
                     <input value={totalSupply} onChange={(e) => setTotalSupply(e.target.value.replace(/[^0-9]/g, ""))} />
+                  </div>
+                  <div className="field field-full">
+                    <label>Soft cap</label>
+                    <input value={softCap} onChange={(e) => setSoftCap(e.target.value.replace(/[^0-9]/g, ""))} />
                   </div>
                 </div>
 
@@ -675,11 +756,11 @@ export default function App() {
               </div>
               <div className="proof-card">
                 <span>Demo Sale PDA</span>
-                <strong>{DEMO_SALE_PDA.toBase58()}</strong>
+                <strong>{DEMO_SALE_PDA || "Create a sale first"}</strong>
               </div>
               <div className="proof-card">
                 <span>Demo Transaction</span>
-                <strong>{DEMO_TX}</strong>
+                <strong>{DEMO_TX || "Create a sale first"}</strong>
               </div>
             </div>
           )}
@@ -689,7 +770,7 @@ export default function App() {
           <div>
             <div className="footer-title">Current MVP scope</div>
             <div className="footer-copy">
-              The live contract currently supports sale initialization and on-chain state reading. Payments, claims, and expanded investor flows can be layered on in the next release.
+              The live contract supports sale initialization, payment options, purchases, finalization, claims, refunds, and withdrawals. This site currently exposes the initialization and state-reading flow.
             </div>
           </div>
           <div className="footer-badge">
