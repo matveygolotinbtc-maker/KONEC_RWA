@@ -50,9 +50,9 @@ const RPC_ENDPOINT = "https://api.devnet.solana.com";
 const PROGRAM_ID = new PublicKey("H25He6vZt9kv7z4AQYeosBifs6SMML8jynSSqFhHXVgZ");
 const TOKEN_PROGRAM_ID = new PublicKey("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA");
 const DEFAULT_RWA_MINT = "5ziuRY49o4jUUAPPjbWZZPT68uYsk7GxX5zP2YigidSv";
-const DEMO_SALE_PDA = "";
+const DEMO_SALE_PDA = "5gHnjckzDHtdcKKcpgYWfLsiSsmB5khtrRU3osnrTRvP";
 const DEMO_ADMIN = "CsSCxuAh7UR5zTPYFKyttrGzQgP48kWqgLAsP2R2Fuvi";
-const DEMO_TX = "";
+const DEMO_TX = "2gFAiV2NhWb2aMrR22iRXYvFrUkL4CwKSkKYvzYP4k51x5QJv4XWt3RarAUDmhEfhVNf1M8PF1K59CPogBwiVtrP";
 
 const IDL = {
   address: PROGRAM_ID.toBase58(),
