@@ -5,13 +5,14 @@
 ## Что внутри
 
 - подключение Phantom wallet
-- readonly загрузка уже существующего `Sale` account с devnet
-- создание нового `sale` через `initializeSale`
+- создание нового `Sale` account через новый `initializeSale`
 - отображение состояния `Sale` account
+- работа с новым devnet-контрактом, который поддерживает payment options, buy, finalize, cancel, claim, refund и withdraw на уровне smart contract
 - заранее подставлены:
-  - Program ID: `G9acQdREqSrvNhp2hHUWYsMtfBFJJKkudAANYjM5d6DM`
-  - Demo Sale PDA: `6kMtPKcCRvDP62PPjrUgDKACGb14daZZ2pwnGWNx9oAK`
-  - Demo Tx: `faGUcpG7D4eFQFyW5BPZhoTPd7bAW6rt1eeuBxhVZouZGx8X8m4bcuUissZ2R8Zqb7cwtyp4kUB3zFuK4qXFoHU`
+  - Program ID: `H25He6vZt9kv7z4AQYeosBifs6SMML8jynSSqFhHXVgZ`
+  - Default RWA Mint: `5ziuRY49o4jUUAPPjbWZZPT68uYsk7GxX5zP2YigidSv`
+  - Demo Sale PDA: будет заполнен после первого успешного `Create sale on devnet`
+  - Demo Tx: будет заполнен после первого успешного `Create sale on devnet`
 
 ## Локальный запуск
 
@@ -43,4 +44,4 @@ npm run build
 ## Важно
 
 Phantom подключение и live-транзакции работают только в обычном браузере с установленным Phantom.
-Без Phantom все равно можно открыть сайт и нажать `Load live demo sale`.
+Кнопка `Load live demo sale` начнёт работать после того, как в `src/App.tsx` будут добавлены реальные `DEMO_SALE_PDA` и `DEMO_TX` после первого успешного создания sale.
