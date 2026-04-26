@@ -300,7 +300,7 @@ export default function App() {
 
   const deriveMintAuthorityPda = (salePda: PublicKey) => {
     const [pda] = PublicKey.findProgramAddressSync(
-      [Buffer.from("mint_authority"), salePda.toBuffer()],
+      [Buffer.from("mint-authority"), salePda.toBuffer()],
       PROGRAM_ID
     );
     return pda;
@@ -308,7 +308,7 @@ export default function App() {
 
   const deriveTreasuryAuthorityPda = (salePda: PublicKey) => {
     const [pda] = PublicKey.findProgramAddressSync(
-      [Buffer.from("treasury_authority"), salePda.toBuffer()],
+      [Buffer.from("treasury-authority"), salePda.toBuffer()],
       PROGRAM_ID
     );
     return pda;
