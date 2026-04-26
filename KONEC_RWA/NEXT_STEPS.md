@@ -16,6 +16,7 @@ Current demo values:
 - Demo Sale PDA: `5gHnjckzDHtdcKKcpgYWfLsiSsmB5khtrRU3osnrTRvP`
 - Demo Tx: `2gFAiV2NhWb2aMrR22iRXYvFrUkL4CwKSkKYvzYP4k51x5QJv4XWt3RarAUDmhEfhVNf1M8PF1K59CPogBwiVtrP`
 - RWA Mint: `5ziuRY49o4jUUAPPjbWZZPT68uYsk7GxX5zP2YigidSv`
+- Payment Mint: `9GH312Yx1R54qq8YjtcCaUGgz8y4ga9GQP9wkWzZHksj`
 - Sale ID: `1`
 - Total supply: `1000`
 - Soft cap: `500`
@@ -75,8 +76,8 @@ The next milestone is to turn the technical sale initializer into a real investo
 
 Recommended implementation order:
 
-1. Prepare a devnet SPL payment mint for testing.
-2. Add `addPaymentOption` UI for admin.
+1. Add `addPaymentOption` UI for admin using Payment Mint `9GH312Yx1R54qq8YjtcCaUGgz8y4ga9GQP9wkWzZHksj`.
+2. Create or verify the treasury payment ATA for the treasury authority PDA.
 3. Add buyer token-account checks.
 4. Add `buy` UI.
 5. Display investor `BuyerPosition` and `BuyerPaymentPosition` accounts.
@@ -98,4 +99,4 @@ For every new instruction added to the frontend:
 
 ## 6. Suggested immediate next step
 
-Prepare a devnet SPL payment mint and token accounts for testing. After that, add `addPaymentOption` to the frontend. Without a payment option, investors cannot buy, so `Total Reserved` will stay `0`.
+Add `addPaymentOption` to the frontend. Without a payment option, investors cannot buy, so `Total Reserved` will stay `0`.
