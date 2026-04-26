@@ -8,7 +8,7 @@ The current site proves the base integration:
 - The frontend talks to the deployed Anchor program.
 - `initializeSale` creates a live `Sale` account.
 - The site can load and decode the demo sale account.
-- The Proof tab can show Program ID, Sale PDA, and transaction hash.
+- The Proof tab shows Program ID, Sale PDA, and transaction hash.
 
 Current demo values:
 
@@ -16,55 +16,74 @@ Current demo values:
 - Demo Sale PDA: `5gHnjckzDHtdcKKcpgYWfLsiSsmB5khtrRU3osnrTRvP`
 - Demo Tx: `2gFAiV2NhWb2aMrR22iRXYvFrUkL4CwKSkKYvzYP4k51x5QJv4XWt3RarAUDmhEfhVNf1M8PF1K59CPogBwiVtrP`
 - RWA Mint: `5ziuRY49o4jUUAPPjbWZZPT68uYsk7GxX5zP2YigidSv`
+- Sale ID: `1`
+- Total supply: `1000`
+- Soft cap: `500`
+- Current status: `Active`
 
-## 2. Next product milestone
+## 2. Exact PDA seeds from the Rust contract
+
+These seeds are confirmed from `lib.rs` and must be used by the frontend.
+
+### Sale
+
+```ts
+[Buffer.from("sale"), admin.toBuffer(), saleId.toArrayLike(Buffer, "le", 8)]
+```
+
+### Mint authority
+
+```ts
+[Buffer.from("mint-authority"), salePda.toBuffer()]
+```
+
+### Treasury authority
+
+```ts
+[Buffer.from("treasury-authority"), salePda.toBuffer()]
+```
+
+### Payment option
+
+```ts
+[Buffer.from("payment-option"), salePda.toBuffer(), paymentMint.toBuffer()]
+```
+
+### Buyer position
+
+```ts
+[Buffer.from("position"), salePda.toBuffer(), buyer.toBuffer()]
+```
+
+### Buyer payment position
+
+```ts
+[Buffer.from("payment-position"), salePda.toBuffer(), buyer.toBuffer(), paymentMint.toBuffer()]
+```
+
+## 3. Associated token accounts needed later
+
+These are associated token accounts, not custom program PDAs:
+
+- Treasury payment ATA: owner is the treasury authority PDA, mint is the payment mint.
+- Buyer RWA ATA: owner is the buyer wallet, mint is the RWA mint.
+- Admin payment ATA: owner is the admin wallet, mint is the payment mint.
+
+## 4. Next product milestone
 
 The next milestone is to turn the technical sale initializer into a real investor demo.
 
-Recommended order:
+Recommended implementation order:
 
-1. Add `addPaymentOption` UI for admin.
-2. Add a stable devnet payment mint, for example a test USDC-like SPL token.
-3. Add a buyer flow with `buy`.
-4. Display investor position accounts.
-5. Add `finalizeSale` for admin.
-6. Add `claimRwa` for successful sale.
-7. Add `refundPayment` for failed or cancelled sale.
-8. Add `withdrawProceeds` for admin.
-
-## 3. UI changes to add next
-
-Recommended new blocks in `src/App.tsx`:
-
-- Admin setup panel
-  - Payment mint input
-  - Price per RWA token input
-  - `Add payment option` button
-
-- Investor buy panel
-  - Payment amount input
-  - Derived buyer position PDA
-  - Derived buyer payment position PDA
-  - `Buy tokens` button
-
-- Settlement panel
-  - `Finalize sale`
-  - `Claim RWA`
-  - `Refund payment`
-  - `Withdraw proceeds`
-
-## 4. Important technical notes
-
-Before adding the next UI actions, confirm the exact PDA seeds in the Rust contract for:
-
-- `paymentOption`
-- `treasuryPaymentAta`
-- `buyerPosition`
-- `buyerPaymentPosition`
-- `buyerRwaAta`
-- `adminPaymentAta`
-
-The previous `mintAuthority` issue happened because the frontend used `mint_authority`, while the contract expected `mint-authority`. The same check should be done before building the payment flow.
+1. Prepare a devnet SPL payment mint for testing.
+2. Add `addPaymentOption` UI for admin.
+3. Add buyer token-account checks.
+4. Add `buy` UI.
+5. Display investor `BuyerPosition` and `BuyerPaymentPosition` accounts.
+6. Add `finalizeSale` for admin.
+7. Add `claimRwa` for successful sale.
+8. Add `refundPayment` for failed or cancelled sale.
+9. Add `withdrawProceeds` for admin.
 
 ## 5. Testing checklist
 
@@ -79,4 +98,4 @@ For every new instruction added to the frontend:
 
 ## 6. Suggested immediate next step
 
-Add `addPaymentOption` first. Without a payment option, investors cannot buy, so `Total Reserved` will stay `0`.
+Prepare a devnet SPL payment mint and token accounts for testing. After that, add `addPaymentOption` to the frontend. Without a payment option, investors cannot buy, so `Total Reserved` will stay `0`.
