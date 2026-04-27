@@ -62,30 +62,38 @@ export default function AppInvestorLive() {
   const program = async () => new Program(IDL, new AnchorProvider(connection, (await provider()) as any, { commitment: 'confirmed', preflightCommitment: 'confirmed' }) as any) as any;
   const readProgram = () => new Program(IDL, { connection, publicKey: undefined } as any) as any;
   const optionPda = () => PublicKey.findProgramAddressSync([Buffer.from('payment-option'), SALE.toBuffer(), PAYMENT_MINT.toBuffer()], PROGRAM_ID)[0];
+  const treasuryAuthority = () => PublicKey.findProgramAddressSync([Buffer.from('treasury-authority'), SALE.toBuffer()], PROGRAM_ID)[0];
+  const treasuryPaymentAta = () => PublicKey.findProgramAddressSync([treasuryAuthority().toBuffer(), TOKEN_PROGRAM_ID.toBuffer(), PAYMENT_MINT.toBuffer()], ATA_PROGRAM_ID)[0];
   const positionPda = (buyer: PublicKey) => PublicKey.findProgramAddressSync([Buffer.from('position'), SALE.toBuffer(), buyer.toBuffer()], PROGRAM_ID)[0];
   const ata = (owner: PublicKey) => PublicKey.findProgramAddressSync([owner.toBuffer(), TOKEN_PROGRAM_ID.toBuffer(), PAYMENT_MINT.toBuffer()], ATA_PROGRAM_ID)[0];
 
-  const bal = async (a: PublicKey) => { const i = await connection.getAccountInfo(a); if (!i) return null; return i.data.readBigUInt64LE(64); };
+  const ensureTokenAccount = async (account: PublicKey, label: string) => {
+    const info = await connection.getAccountInfo(account);
+    if (!info) throw new Error(`${label} does not exist: ${account.toBase58()}`);
+    if (!info.owner.equals(TOKEN_PROGRAM_ID)) throw new Error(`${label} is not owned by SPL Token Program: ${account.toBase58()}`);
+    return info;
+  };
+  const bal = async (a: PublicKey) => { const i = await connection.getAccountInfo(a); if (!i) return null; if (!i.owner.equals(TOKEN_PROGRAM_ID)) throw new Error(`Buyer ATA is not owned by SPL Token Program: ${a.toBase58()}`); return i.data.readBigUInt64LE(64); };
   const connect = async () => { try { setBusy('connect'); setError(''); const p = await provider(); setWallet(p.publicKey!.toBase58()); setStatus('Wallet connected.'); } catch (e: any) { setError(e.message); } finally { setBusy(null); } };
   const disconnect = async () => { try { await window.solana?.disconnect(); } finally { setWallet(''); setStatus('Wallet disconnected.'); } };
 
   const load = async () => {
     try {
       setBusy('load'); setError(''); setStatus('Loading sale and payment option...');
-      const p = readProgram(); const sale: any = await p.account.sale.fetch(SALE); const opt = optionPda(); const pay: any = await p.account.paymentOption.fetch(opt);
+      const p = readProgram(); const sale: any = await p.account.sale.fetch(SALE); const opt = optionPda(); const pay: any = await p.account.paymentOption.fetch(opt); const treasuryAta = treasuryPaymentAta(); await ensureTokenAccount(treasuryAta, 'Treasury payment ATA');
       setSaleRows([['Sale PDA', SALE.toBase58()], ['Sale ID', sale.saleId.toString()], ['Admin', sale.admin.toBase58()], ['RWA Mint', sale.rwaMint.toBase58()], ['Total Supply', sale.totalSupply.toString()], ['Total Reserved', sale.totalReserved.toString()], ['Status', String(sale.status)]]);
-      setPayRows([['Payment Option PDA', opt.toBase58()], ['Payment Mint', pay.paymentMint.toBase58()], ['Treasury ATA', pay.treasuryAta.toBase58()], ['Price per RWA token', pay.pricePerRwaToken.toString()]]);
-      setD(x => ({ ...x, option: opt.toBase58(), treasuryAta: pay.treasuryAta.toBase58(), required: (BigInt(pay.pricePerRwaToken.toString()) * BigInt(asU64(amount, '1'))).toString() }));
-      setStatus('Sale and payment option loaded.');
+      setPayRows([['Payment Option PDA', opt.toBase58()], ['Payment Mint', pay.paymentMint.toBase58()], ['Stored Treasury ATA', pay.treasuryAta.toBase58()], ['Derived Treasury ATA', treasuryAta.toBase58()], ['Price per RWA token', pay.pricePerRwaToken.toString()]]);
+      setD(x => ({ ...x, option: opt.toBase58(), treasuryAta: treasuryAta.toBase58(), required: (BigInt(pay.pricePerRwaToken.toString()) * BigInt(asU64(amount, '1'))).toString() }));
+      setStatus('Sale and payment option loaded. Treasury ATA verified as SPL token account.');
     } catch (e: any) { setError(e.message || 'Load failed.'); setStatus('Load failed.'); } finally { setBusy(null); }
   };
 
   const checkBuyer = async () => {
     try {
-      setBusy('load'); setError(''); const ph = await provider(); const buyer = ph.publicKey!; const p = readProgram(); const opt: any = await p.account.paymentOption.fetch(optionPda());
+      setBusy('load'); setError(''); const ph = await provider(); const buyer = ph.publicKey!; const p = readProgram(); const opt: any = await p.account.paymentOption.fetch(optionPda()); const treasuryAta = treasuryPaymentAta(); await ensureTokenAccount(treasuryAta, 'Treasury payment ATA');
       const buyerAta = ata(buyer); const balance = await bal(buyerAta); const pos = positionPda(buyer); let rows: Row[] = [];
       try { const bp: any = await p.account.buyerPosition.fetch(pos); rows = [['Buyer Position PDA', pos.toBase58()], ['Reserved RWA', bp.totalReserved.toString()], ['Payment Events', bp.totalPaymentEvents.toString()], ['Claimed', String(Boolean(bp.claimed))]]; } catch { rows = []; }
-      setBuyerRows(rows); setD(x => ({ ...x, buyerPosition: pos.toBase58(), buyerAta: buyerAta.toBase58(), balance: balance === null ? 'ATA not found' : balance.toString(), required: (BigInt(opt.pricePerRwaToken.toString()) * BigInt(asU64(amount, '1'))).toString() }));
+      setBuyerRows(rows); setD(x => ({ ...x, treasuryAta: treasuryAta.toBase58(), buyerPosition: pos.toBase58(), buyerAta: buyerAta.toBase58(), balance: balance === null ? 'ATA not found' : balance.toString(), required: (BigInt(opt.pricePerRwaToken.toString()) * BigInt(asU64(amount, '1'))).toString() }));
       setStatus(balance === null ? 'Buyer ATA not found. Create it and fund it.' : 'Buyer checked.');
     } catch (e: any) { setError(e.message || 'Buyer check failed.'); setStatus('Buyer check failed.'); } finally { setBusy(null); }
   };
@@ -99,7 +107,7 @@ export default function AppInvestorLive() {
 
   const buy = async () => {
     try {
-      setBusy('buy'); setError(''); const ph = await provider(); const pr = await program(); const buyer = ph.publicKey!; const opt = optionPda(); const pay: any = await pr.account.paymentOption.fetch(opt); const paymentAmount = BigInt(pay.pricePerRwaToken.toString()) * BigInt(asU64(amount, '1')); const buyerAta = ata(buyer); const balance = await bal(buyerAta); if (balance === null) throw new Error('Buyer ATA does not exist.'); if (balance < paymentAmount) throw new Error(`Insufficient payment token balance. Required ${paymentAmount}, current ${balance}.`); const pos = positionPda(buyer); const sig = await pr.methods.buy(new BN(paymentAmount.toString())).accounts({ buyer, sale: SALE, paymentOption: opt, paymentMint: PAYMENT_MINT, buyerPosition: pos, buyerPaymentAta: buyerAta, treasuryPaymentAta: pay.treasuryAta, tokenProgram: TOKEN_PROGRAM_ID, systemProgram: SystemProgram.programId }).rpc(); setTx(sig); await connection.confirmTransaction(sig, 'confirmed'); await load(); await checkBuyer(); setStatus('Buy confirmed. totalReserved and buyer position updated.');
+      setBusy('buy'); setError(''); const ph = await provider(); const pr = await program(); const buyer = ph.publicKey!; const opt = optionPda(); const pay: any = await pr.account.paymentOption.fetch(opt); const paymentAmount = BigInt(pay.pricePerRwaToken.toString()) * BigInt(asU64(amount, '1')); const buyerAta = ata(buyer); const balance = await bal(buyerAta); if (balance === null) throw new Error('Buyer ATA does not exist.'); if (balance < paymentAmount) throw new Error(`Insufficient payment token balance. Required ${paymentAmount}, current ${balance}.`); const treasuryAta = treasuryPaymentAta(); await ensureTokenAccount(treasuryAta, 'Treasury payment ATA'); const pos = positionPda(buyer); const sig = await pr.methods.buy(new BN(paymentAmount.toString())).accounts({ buyer, sale: SALE, paymentOption: opt, paymentMint: PAYMENT_MINT, buyerPosition: pos, buyerPaymentAta: buyerAta, treasuryPaymentAta: treasuryAta, tokenProgram: TOKEN_PROGRAM_ID, systemProgram: SystemProgram.programId }).rpc(); setTx(sig); await connection.confirmTransaction(sig, 'confirmed'); await load(); await checkBuyer(); setStatus('Buy confirmed. totalReserved and buyer position updated.');
     } catch (e: any) { setError(e.message || 'Buy failed.'); setStatus('Buy failed.'); } finally { setBusy(null); }
   };
 
