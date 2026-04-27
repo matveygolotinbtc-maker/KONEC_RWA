@@ -1,10 +1,10 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
-import AppPaymentLive from './AppPaymentLive';
+import AppInvestorLive from './AppInvestorLive';
 import './styles.css';
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
-    <AppPaymentLive />
+    <AppInvestorLive />
   </React.StrictMode>
 );
