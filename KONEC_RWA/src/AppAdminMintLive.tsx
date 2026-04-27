@@ -45,6 +45,7 @@ type Busy = 'connect' | 'mint' | 'sale' | 'payment' | null;
 type Row = [string, string];
 const short = (v?: string, l = 6, r = 6) => !v ? '—' : v.length <= l + r + 3 ? v : `${v.slice(0, l)}...${v.slice(-r)}`;
 const asU64 = (v: string, f: string) => { const x = v.trim() || f; if (!/^\d+$/.test(x)) throw new Error('Only positive integers are allowed.'); return x; };
+const isAlreadyProcessed = (e: any) => String(e?.message || e || '').toLowerCase().includes('already been processed');
 function Button({ children, variant = 'primary', ...props }: React.ButtonHTMLAttributes<HTMLButtonElement> & { variant?: 'primary' | 'secondary' | 'ghost' }) { return <button className={`btn btn-${variant}`} {...props}>{children}</button>; }
 function Cards({ rows }: { rows: Row[] }) { return <div className="state-grid">{rows.map(([k, v]) => <div className="state-card" key={k}><div className="state-card__label">{k}</div><div className="state-card__value">{v || '—'}</div></div>)}</div>; }
 function Info({ k, v }: { k: string; v: string }) { return <div className="info-card info-card--wide"><span>{k}</span><strong>{v || '—'}</strong></div>; }
@@ -85,10 +86,7 @@ export default function AppAdminMintLive() {
         SystemProgram.createAccount({ fromPubkey: payer, newAccountPubkey: mint.publicKey, space: MINT_SIZE, lamports: rent, programId: TOKEN_PROGRAM_ID }),
         createInitializeMintInstruction(mint.publicKey, 0, payer, payer, TOKEN_PROGRAM_ID)
       );
-      txObj.partialSign(mint);
-      const signed = await p.signTransaction(txObj);
-      const sig = await connection.sendRawTransaction(signed.serialize());
-      await connection.confirmTransaction({ signature: sig, ...bh }, 'confirmed');
+      txObj.partialSign(mint); const signed = await p.signTransaction(txObj); const sig = await connection.sendRawTransaction(signed.serialize()); await connection.confirmTransaction({ signature: sig, ...bh }, 'confirmed');
       setTx(sig); setRwaMint(mint.publicKey.toBase58()); setStatus('Fresh RWA mint created. Now create sale using this mint.');
     } catch (e: any) { setError(e.message || 'Fresh mint creation failed.'); setStatus('Fresh mint creation failed.'); } finally { setBusy(null); }
   };
@@ -115,15 +113,48 @@ export default function AppAdminMintLive() {
     catch (e: any) { setError(e.message || 'Fetch sale failed.'); setStatus('Fetch sale failed.'); } finally { setBusy(null); }
   };
 
+  const loadPaymentOptionIfExists = async (pr: any, sale: PublicKey, payMint: PublicKey, opt: PublicKey, treasury: PublicKey, treasuryAta: PublicKey) => {
+    try {
+      const raw = await pr.account.paymentOption.fetch(opt);
+      setD({ sale: sale.toBase58(), paymentOption: opt.toBase58(), treasuryAuthority: treasury.toBase58(), treasuryAta: treasuryAta.toBase58() });
+      setRows([['Payment Option PDA', opt.toBase58()], ['Sale', raw.sale.toBase58()], ['Payment Mint', raw.paymentMint.toBase58()], ['Treasury ATA', raw.treasuryAta.toBase58()], ['Expected Treasury ATA', treasuryAta.toBase58()], ['Price per RWA token', raw.pricePerRwaToken.toString()]]);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
+  const ensureTreasuryAta = async (payer: PublicKey, treasury: PublicKey, payMint: PublicKey, treasuryAta: PublicKey) => {
+    const existing = await connection.getAccountInfo(treasuryAta);
+    if (existing) return;
+    const p = await provider(); const bh = await connection.getLatestBlockhash('confirmed');
+    const txObj = new Transaction({ feePayer: payer, recentBlockhash: bh.blockhash }).add(createAssociatedTokenAccountInstruction(payer, treasuryAta, treasury, payMint, TOKEN_PROGRAM_ID));
+    const signed = await p.signTransaction(txObj);
+    try {
+      const sigAta = await connection.sendRawTransaction(signed.serialize());
+      setTx(sigAta);
+      await connection.confirmTransaction({ signature: sigAta, ...bh }, 'confirmed');
+    } catch (e: any) {
+      if (!isAlreadyProcessed(e)) throw e;
+    }
+    if (!(await connection.getAccountInfo(treasuryAta))) throw new Error('Treasury ATA was not created. Try Add payment option again.');
+  };
+
   const addPayment = async () => {
     try {
       setBusy('payment'); setError(''); setStatus('Adding payment option with verified treasury ATA...');
-      const p = await provider(); const pr = await program(); const admin = p.publicKey!; const sale = salePda(admin, asU64(saleId, '2')); const payMint = new PublicKey(paymentMint); const treasury = treasuryAuth(sale); const treasuryAta = getAssociatedTokenAddressSync(payMint, treasury, true, TOKEN_PROGRAM_ID);
-      if (!(await connection.getAccountInfo(treasuryAta))) {
-        const bh = await connection.getLatestBlockhash('confirmed'); const txObj = new Transaction({ feePayer: admin, recentBlockhash: bh.blockhash }).add(createAssociatedTokenAccountInstruction(admin, treasuryAta, treasury, payMint, TOKEN_PROGRAM_ID)); const signed = await p.signTransaction(txObj); const sigAta = await connection.sendRawTransaction(signed.serialize()); await connection.confirmTransaction({ signature: sigAta, ...bh }, 'confirmed');
+      const p = await provider(); const pr = await program(); const admin = p.publicKey!; const sale = salePda(admin, asU64(saleId, '2')); const payMint = new PublicKey(paymentMint); const treasury = treasuryAuth(sale); const treasuryAta = getAssociatedTokenAddressSync(payMint, treasury, true, TOKEN_PROGRAM_ID); const opt = paymentOption(sale, payMint);
+      await ensureTreasuryAta(admin, treasury, payMint, treasuryAta);
+      if (await loadPaymentOptionIfExists(pr, sale, payMint, opt, treasury, treasuryAta)) { setStatus('Payment option already exists and was loaded.'); return; }
+      try {
+        const sig = await pr.methods.addPaymentOption(new BN(asU64(price, '1'))).accounts({ sale, admin, paymentMint: payMint, paymentOption: opt, treasuryPaymentAta: treasuryAta, treasuryAuthority: treasury, systemProgram: SystemProgram.programId }).rpc();
+        setTx(sig); await connection.confirmTransaction(sig, 'confirmed');
+      } catch (e: any) {
+        if (!isAlreadyProcessed(e)) throw e;
       }
-      const opt = paymentOption(sale, payMint); const sig = await pr.methods.addPaymentOption(new BN(asU64(price, '1'))).accounts({ sale, admin, paymentMint: payMint, paymentOption: opt, treasuryPaymentAta: treasuryAta, treasuryAuthority: treasury, systemProgram: SystemProgram.programId }).rpc();
-      setTx(sig); await connection.confirmTransaction(sig, 'confirmed'); const raw = await pr.account.paymentOption.fetch(opt); setD({ sale: sale.toBase58(), paymentOption: opt.toBase58(), treasuryAuthority: treasury.toBase58(), treasuryAta: treasuryAta.toBase58() }); setRows([['Payment Option PDA', opt.toBase58()], ['Sale', raw.sale.toBase58()], ['Payment Mint', raw.paymentMint.toBase58()], ['Treasury ATA', raw.treasuryAta.toBase58()], ['Price per RWA token', raw.pricePerRwaToken.toString()]]); setStatus('Payment option added with a real SPL treasury ATA.');
+      const loaded = await loadPaymentOptionIfExists(pr, sale, payMint, opt, treasury, treasuryAta);
+      if (!loaded) throw new Error('Payment option transaction finished, but account was not found. Press Add payment option again.');
+      setStatus('Payment option added with a real SPL treasury ATA.');
     } catch (e: any) { setError(e.message || 'Add payment option failed.'); setStatus('Add payment option failed.'); } finally { setBusy(null); }
   };
 
